@@ -16,7 +16,7 @@ With no server, the games hang forever at `서버 접속중`.
 
 `aram-authd` synthesizes the server side of that handshake in-process so the
 games authenticate locally and reach gameplay. It is a **pure-Go library**
-(not a live network service) so `aram-test` replay stays deterministic.
+that runs fully in-process, so `aram-test` replay stays deterministic.
 
 ## Where it fits
 
