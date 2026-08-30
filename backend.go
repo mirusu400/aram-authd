@@ -38,3 +38,68 @@ type NetBackend interface {
 type Nop struct{}
 
 func (Nop) Handle(Call, Memory) (uint32, bool) { return 0, false }
+
+// Completion is the asynchronous carrier response a backend asks the runtime to
+// deliver to the title after a network ordinal. A real handset receives the
+// DRM/server handshake result out of band; a raptor title blocks on
+// "접속중"/"서버 접속중" until it arrives. The runtime posts it as a clet event
+// HandleEvent(Event, Arg1, buffer) with Response written to the buffer, after
+// DelayFrames so the title has settled into its wait state.
+type Completion struct {
+	Event       uint32
+	Arg1        uint32
+	Response    []byte
+	DelayFrames int
+}
+
+// CompletionSource is an optional NetBackend capability: after the runtime
+// routes a handled network ordinal, it asks for an asynchronous completion to
+// deliver, or nil for none.
+type CompletionSource interface {
+	Complete(call Call) *Completion
+}
+
+const (
+	// The LGT carrier DRM/auth handshake a raptor Clet drives through these
+	// ordinals; the runtime routes them here.
+	lgtAuthConnectOrdinal = uint32(106)
+	lgtAuthStatusOrdinal  = uint32(238)
+
+	// lgtCarrierResponseEvent is the CletHandleEvent type LGT delivers the
+	// server response on. 하이브리드 releases its "서버 접속중" wait when it
+	// arrives; the handler reads a small response struct from the event's data
+	// pointer and its status from arg1, so a zeroed success response suffices.
+	lgtCarrierResponseEvent = uint32(1800)
+
+	// lgtCompletionDelayFrames lets the title finish registering its session
+	// and paint its wait screen before the response is posted.
+	lgtCompletionDelayFrames = 3
+)
+
+// Grant is a NetBackend that emulates a successful LGT carrier DRM/auth
+// handshake: it accepts the auth ordinals and delivers a synthetic success
+// response, so titles that gate startup on the carrier server run without a
+// live carrier (the "인증 우회" cheat). It handles only the auth ordinals so
+// unrelated network traffic still falls through to the runtime default.
+type Grant struct{}
+
+func (Grant) Handle(call Call, _ Memory) (uint32, bool) {
+	switch call.Ordinal {
+	case lgtAuthConnectOrdinal, lgtAuthStatusOrdinal:
+		return 0, true
+	}
+	return 0, false
+}
+
+func (Grant) Complete(call Call) *Completion {
+	switch call.Ordinal {
+	case lgtAuthConnectOrdinal, lgtAuthStatusOrdinal:
+		return &Completion{
+			Event:       lgtCarrierResponseEvent,
+			Arg1:        0,
+			Response:    make([]byte, 16),
+			DelayFrames: lgtCompletionDelayFrames,
+		}
+	}
+	return nil
+}
