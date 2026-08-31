@@ -74,6 +74,15 @@ const (
 	// lgtCompletionDelayFrames lets the title finish registering its session
 	// and paint its wait screen before the response is posted.
 	lgtCompletionDelayFrames = 3
+
+	// lgtAuthResultCode is the DRM auth-result opcode the title both requests
+	// (carried in the ordinal's opcode register) and validates as its success
+	// status. A raptor title interleaves plain carrier connect/keepalive
+	// messages (acked with status 0) with this DRM auth request; its
+	// auth-result handler compares the response status against this code, so
+	// the completion must echo it back rather than a bare zero, or the title
+	// treats the DRM step as failed and re-prompts.
+	lgtAuthResultCode = uint32(0x5001)
 )
 
 // Grant is a NetBackend that emulates a successful LGT carrier DRM/auth
@@ -94,9 +103,21 @@ func (Grant) Handle(call Call, _ Memory) (uint32, bool) {
 func (Grant) Complete(call Call) *Completion {
 	switch call.Ordinal {
 	case lgtAuthConnectOrdinal, lgtAuthStatusOrdinal:
+		// The request opcode identifies the handshake message. The connect
+		// ordinal carries it in r0; the status dispatcher carries it in r1.
+		opcode := call.Args[0]
+		if call.Ordinal == lgtAuthStatusOrdinal {
+			opcode = call.Args[1]
+		}
+		// Ack a carrier connect/keepalive with status 0; answer the DRM auth
+		// request with the auth-result code as its success status.
+		arg1 := uint32(0)
+		if opcode == lgtAuthResultCode {
+			arg1 = lgtAuthResultCode
+		}
 		return &Completion{
 			Event:       lgtCarrierResponseEvent,
-			Arg1:        0,
+			Arg1:        arg1,
 			Response:    make([]byte, 16),
 			DelayFrames: lgtCompletionDelayFrames,
 		}
