@@ -41,3 +41,10 @@ bridge 106/238 → observe the guest's requests → craft a response → watch t
 auth state machine advance past `-300` → iterate.
 
 Unblocks: aram-core issues #52 (하이브리드), #49 (제노니아1 sound), #36 (제노니아 auth).
+
+## License
+
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+Noncommercial use (personal projects, research, education, hobby builds) is
+free. Commercial use, including shipping a product or service built on this
+code, requires a separate license from the copyright holder.
