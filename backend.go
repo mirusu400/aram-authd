@@ -83,6 +83,11 @@ const (
 	// the completion must echo it back rather than a bare zero, or the title
 	// treats the DRM step as failed and re-prompts.
 	lgtAuthResultCode = uint32(0x5001)
+
+	// offlineSubscriberIdentity is the deterministic test handset number exposed
+	// to titles that ask the carrier service to populate an identity buffer.
+	// Keep the trailing NUL: the guest consumes this as a C string.
+	offlineSubscriberIdentity = "01012341234\x00"
 )
 
 // Grant is a NetBackend that emulates a successful LGT carrier DRM/auth
@@ -92,7 +97,23 @@ const (
 // unrelated network traffic still falls through to the runtime default.
 type Grant struct{}
 
-func (Grant) Handle(call Call, _ Memory) (uint32, bool) {
+func isSubscriberIdentityCall(call Call) bool {
+	return call.Ordinal == lgtAuthConnectOrdinal &&
+		call.Args[0] != 0 && call.Args[1] == 0 && call.Args[2] != 0
+}
+
+func (Grant) Handle(call Call, mem Memory) (uint32, bool) {
+	if isSubscriberIdentityCall(call) {
+		if call.Args[2] < uint32(len(offlineSubscriberIdentity)) {
+			return ^uint32(0), true
+		}
+		if err := mem.WriteBytes(
+			call.Args[0], []byte(offlineSubscriberIdentity),
+		); err != nil {
+			return ^uint32(0), true
+		}
+		return 0, true
+	}
 	switch call.Ordinal {
 	case lgtAuthConnectOrdinal, lgtAuthStatusOrdinal:
 		return 0, true
@@ -101,6 +122,12 @@ func (Grant) Handle(call Call, _ Memory) (uint32, bool) {
 }
 
 func (Grant) Complete(call Call) *Completion {
+	if isSubscriberIdentityCall(call) {
+		// Identity-buffer reads are synchronous. Posting the carrier response
+		// event here would make the title interpret an unrelated phone-number
+		// lookup as a completed DRM handshake.
+		return nil
+	}
 	switch call.Ordinal {
 	case lgtAuthConnectOrdinal, lgtAuthStatusOrdinal:
 		// The request opcode identifies the handshake message. The connect

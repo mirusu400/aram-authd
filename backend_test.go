@@ -46,6 +46,59 @@ func TestGrantHandlesAuthOrdinals(t *testing.T) {
 	}
 }
 
+func TestGrantWritesOfflineSubscriberIdentity(t *testing.T) {
+	const address = uint32(0x1000)
+	mem := memStub{}
+	for offset := uint32(0); offset < 16; offset++ {
+		mem[address+offset] = 0xcc
+	}
+	call := Call{
+		Ordinal: 106,
+		Args:    [3]uint32{address, 0, 16},
+	}
+	result, handled := (Grant{}).Handle(call, mem)
+	if !handled || result != 0 {
+		t.Fatalf("identity result=(0x%x, %t), want (0, true)", result, handled)
+	}
+	want := []byte("01012341234\x00")
+	got, _ := mem.ReadBytes(address, len(want))
+	if string(got) != string(want) {
+		t.Fatalf("identity bytes = %q, want %q", got, want)
+	}
+	for offset := uint32(len(want)); offset < 16; offset++ {
+		if got := mem[address+offset]; got != 0xcc {
+			t.Fatalf("identity write changed trailing byte +%d to 0x%x", offset, got)
+		}
+	}
+	if completion := (Grant{}).Complete(call); completion != nil {
+		t.Fatalf("identity lookup posted completion %+v", completion)
+	}
+}
+
+func TestGrantRejectsShortSubscriberIdentityBuffer(t *testing.T) {
+	const address = uint32(0x2000)
+	mem := memStub{}
+	for offset := uint32(0); offset < 12; offset++ {
+		mem[address+offset] = 0x5a
+	}
+	call := Call{
+		Ordinal: 106,
+		Args:    [3]uint32{address, 0, 11},
+	}
+	result, handled := (Grant{}).Handle(call, mem)
+	if !handled || result != ^uint32(0) {
+		t.Fatalf("short identity result=(0x%x, %t), want (0xffffffff, true)", result, handled)
+	}
+	for offset := uint32(0); offset < 12; offset++ {
+		if got := mem[address+offset]; got != 0x5a {
+			t.Fatalf("short identity write changed byte +%d to 0x%x", offset, got)
+		}
+	}
+	if completion := (Grant{}).Complete(call); completion != nil {
+		t.Fatalf("short identity lookup posted completion %+v", completion)
+	}
+}
+
 func TestGrantCompletionIsRequestDriven(t *testing.T) {
 	g := Grant{}
 	cases := []struct {
